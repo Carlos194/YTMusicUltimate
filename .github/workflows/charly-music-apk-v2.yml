@@ -10,8 +10,124 @@ permissions:
   contents: read
 
 jobs:
-  placeholder:
-    if: false
+  build:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+
     steps:
-      - run: echo "Build definition lives in the Charly Music build branch"
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'microsoft'
+
+      - name: Fetch pinned SimpMusic source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git init CharlyMusic
+          cd CharlyMusic
+          git remote add origin https://github.com/maxrave-dev/SimpMusic.git
+          git fetch --depth 1 origin 64520e0b5643605c78bcdf34949713163e337c9d
+          git checkout --detach FETCH_HEAD
+          git submodule update --init --recursive --depth 1
+          git rev-parse HEAD
+
+      - name: Personalize as Charly Music
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path('CharlyMusic')
+          gradle = root / 'androidApp/build.gradle.kts'
+          text = gradle.read_text(encoding='utf-8')
+          text, count = re.subn(
+              r'applicationId\s*=\s*"com\.maxrave\.simpmusic"',
+              'applicationId = "com.charly.music"',
+              text,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit('Could not replace applicationId')
+          text = text.replace('applicationIdSuffix = ".dev"', 'applicationIdSuffix = ".personal"')
+          text = text.replace('versionNameSuffix = "-dev"', 'versionNameSuffix = "-personal"')
+          gradle.write_text(text, encoding='utf-8')
+
+          props = root / 'gradle.properties'
+          text = props.read_text(encoding='utf-8')
+          if re.search(r'(?m)^isFullBuild\s*=', text):
+              text = re.sub(r'(?m)^isFullBuild\s*=.*$', 'isFullBuild=false', text)
+          else:
+              text += '\nisFullBuild=false\n'
+          props.write_text(text, encoding='utf-8')
+
+          settings = root / 'settings.gradle.kts'
+          text = settings.read_text(encoding='utf-8')
+          text = text.replace('rootProject.name = "SimpMusic"', 'rootProject.name = "CharlyMusic"')
+          settings.write_text(text, encoding='utf-8')
+
+          for rel in [
+              'androidApp/src/main/res/values/app_name.xml',
+              'androidApp/src/debug/res/values/app_name.xml',
+          ]:
+              path = root / rel
+              text = path.read_text(encoding='utf-8')
+              text, count = re.subn(
+                  r'(<string\s+name="app_name">).*?(</string>)',
+                  r'\1Charly Music\2',
+                  text,
+                  count=1,
+                  flags=re.S,
+              )
+              if count != 1:
+                  raise SystemExit(f'Could not rename app in {rel}')
+              path.write_text(text, encoding='utf-8')
+
+          (root / 'local.properties').write_text(
+              'SENTRY_DSN=\n'
+              'SENTRY_AUTH_TOKEN=\n'
+              'LASTFM_API_KEY=\n'
+              'LASTFM_SECRET=\n',
+              encoding='utf-8',
+          )
+          print('Charly Music personalization complete')
+          PY
+
+      - name: Verify configuration
+        shell: bash
+        run: |
+          set -euxo pipefail
+          grep -n 'applicationId = "com.charly.music"' CharlyMusic/androidApp/build.gradle.kts
+          grep -n 'applicationIdSuffix = ".personal"' CharlyMusic/androidApp/build.gradle.kts
+          grep -n '^isFullBuild=false' CharlyMusic/gradle.properties
+          cat CharlyMusic/androidApp/src/main/res/values/app_name.xml
+          cat CharlyMusic/androidApp/src/debug/res/values/app_name.xml
+
+      - name: Generate library definitions
+        working-directory: CharlyMusic
+        run: ./gradlew exportLibraryDefinitions --stacktrace --no-daemon
+
+      - name: Build debug APK
+        working-directory: CharlyMusic
+        run: ./gradlew :androidApp:assembleDebug --stacktrace --no-daemon
+
+      - name: Collect APK
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p out
+          find CharlyMusic/androidApp/build/outputs/apk -type f -name '*.apk' -print
+          APK=$(find CharlyMusic/androidApp/build/outputs/apk/debug -type f -name '*.apk' | head -n 1)
+          test -n "$APK"
+          cp "$APK" out/CharlyMusic-v0.2-personal-debug.apk
+          sha256sum out/CharlyMusic-v0.2-personal-debug.apk | tee out/SHA256.txt
+
+      - name: Upload Charly Music APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: CharlyMusic-v0.2-personal-apk
+          path: out/
+          retention-days: 14
