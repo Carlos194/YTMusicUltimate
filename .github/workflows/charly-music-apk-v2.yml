@@ -1,0 +1,17 @@
+name: Build Charly Music APK v2
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/charly-music-apk-v2.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  placeholder:
+    if: false
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Build definition lives in the Charly Music build branch"
