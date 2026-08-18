@@ -64,10 +64,10 @@ jobs:
               text += '\nisFullBuild=false\n'
           props.write_text(text, encoding='utf-8')
 
-          settings = root / 'settings.gradle.kts'
-          text = settings.read_text(encoding='utf-8')
-          text = text.replace('rootProject.name = "SimpMusic"', 'rootProject.name = "CharlyMusic"')
-          settings.write_text(text, encoding='utf-8')
+          # Keep rootProject.name = "SimpMusic". Compose Multiplatform uses it
+          # when generating the resources package imported throughout the source
+          # as simpmusic.composeapp.generated.resources.*. Branding the Gradle
+          # root project would change that package and break compilation.
 
           for rel in [
               'androidApp/src/main/res/values/app_name.xml',
@@ -103,6 +103,7 @@ jobs:
           grep -n 'applicationId = "com.charly.music"' CharlyMusic/androidApp/build.gradle.kts
           grep -n 'applicationIdSuffix = ".personal"' CharlyMusic/androidApp/build.gradle.kts
           grep -n '^isFullBuild=false' CharlyMusic/gradle.properties
+          grep -n 'rootProject.name = "SimpMusic"' CharlyMusic/settings.gradle.kts
           cat CharlyMusic/androidApp/src/main/res/values/app_name.xml
           cat CharlyMusic/androidApp/src/debug/res/values/app_name.xml
 
